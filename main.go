@@ -8,7 +8,6 @@ import (
 )
 
 func main() {
-	helper.ParseFromReader()
 
 	torrentFileLocation := os.Args[1]
 	downloadLocation := os.Args[2]
@@ -22,20 +21,9 @@ func main() {
 	}
 	defer file.Close()
 
-	fileInfo, err := file.Stat()
-	if err != nil {
-		fmt.Println("Error checking file size")
-		return
+	torrentFile, parseErr := helper.ParseTorrentFile(file)
+	if parseErr != nil {
+		fmt.Println("Error parsing torrent file")
 	}
-	fmt.Println("size", fileInfo.Size())
-
-	bytes := make([]byte, 1)
-	for i := 1582; i < 1683; i++ {
-		_, err = file.ReadAt(bytes, int64(i))
-		if err != nil {
-			fmt.Println("Error reading bytes from torrent file")
-			return
-		}
-		fmt.Println(string(bytes))
-	}
+	fmt.Println(torrentFile)
 }
