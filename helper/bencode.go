@@ -10,7 +10,8 @@ import (
 )
 
 type TorrentFile struct {
-	Announce    string
+	Announce string
+	// AnnounceList []interface{}
 	Comment     string
 	Size        int64
 	FileName    string
@@ -23,6 +24,7 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 
 	isKey := true
 	dict := make(map[string]interface{})
+	var lastKey string
 
 	b, err := reader.ReadByte()
 	for {
@@ -35,55 +37,43 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 
 		switch val {
 		case "i":
-			fmt.Println("INTEGER")
-			intVal := getInt(reader)
+			intVal := getInt(reader, "e")
+			fmt.Println("INTEGER", intVal, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
-				// keyVal[intVal] = nil
 			} else {
-				for k, v := range dict {
-					if v == nil {
-						dict[k] = intVal
-					}
-					break
-				}
+				dict[lastKey] = intVal
+			}
+
+		case "d":
+			subDict := getDict(reader, &result)
+
+			if isKey {
+				fmt.Println("This should not be possible")
+			} else {
+				dict[lastKey] = subDict
 			}
 
 		case "l":
-			fmt.Println("LIST")
 			list := getList(reader)
+			fmt.Println("LIST", list, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
-				// keyVal[intVal] = nil
 			} else {
-				for k, v := range dict {
-					if v == nil {
-						dict[k] = list
-					}
-					break
-				}
+				dict[lastKey] = list
 			}
 
 		default:
-			fmt.Println("STRING")
 			str := getString(reader)
-
-			if str == "pieces" {
-				parsePieces(reader, &result.Pieces)
-				isKey = !isKey
-			}
+			fmt.Println("STRING", str, isKey)
 
 			if isKey {
+				lastKey = str
 				dict[str] = nil
 			} else {
-				for k, v := range dict {
-					if v == nil {
-						dict[k] = str
-					}
-					break
-				}
+				dict[lastKey] = str
 			}
 		}
 
@@ -106,47 +96,130 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 	if _, keyExist := dict["length"]; keyExist {
 		result.PieceLength = dict["length"].(int64)
 	}
+	// if _, keyExist := dict["announce-list"]; keyExist {
+	// 	result.AnnounceList = announceList.([]interface{})
+	// }
+
+	if err == io.EOF {
+		err = nil
+	}
 
 	return result, err
 }
 
-func parsePieces(r *bufio.Reader, pieces *[]string) {
-	p := *pieces
+func parsePieces(r *bufio.Reader) []string {
+	var pieces []string
 
-	for {
+	piecesLen := getInt(r, ":")
+	fmt.Println("Number of pieces", piecesLen)
+	r.ReadByte()
+
+	for i := 0; i < piecesLen/20; i++ {
 		bytes := make([]byte, 20)
 		for i := 0; i < 20; i++ {
 			b, _ := r.ReadByte()
 			bytes[i] = b
 		}
+		fmt.Println("HASHES", bytes)
 
-		p = append(p, hex.EncodeToString(bytes))
+		pieces = append(pieces, hex.EncodeToString(bytes))
 	}
+
+	return pieces
 }
 
-func getList(r *bufio.Reader) (list []interface{}) {
-	byte, err := r.ReadByte()
-	for err == nil {
-		val := c(byte)
-		if val == "e" || err == io.EOF {
+func getDict(r *bufio.Reader, result *TorrentFile) (dict map[string]interface{}) {
+	dict = make(map[string]interface{})
+	fmt.Println("=========== DICT START =============")
+
+	isKey := true
+	var lastKey string
+
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
 			break
 		}
 
+		val := c(b)
+
 		switch val {
+		case "i":
+			intVal := getInt(r, "e")
+			fmt.Println("INTEGER", intVal, isKey)
+
+			if isKey {
+				fmt.Println("This should not be possible")
+			} else {
+				dict[lastKey] = intVal
+			}
+
 		case "l":
-			fmt.Println("LIST")
-			list = append(list, getList(r))
+			list := getList(r)
+			fmt.Println("LIST", list, isKey)
+
+			if isKey {
+				fmt.Println("This should not be possible")
+			} else {
+				dict[lastKey] = list
+			}
 
 		default:
-			fmt.Println("STRING")
-			list = append(list, getString(r))
+			str := getString(r)
+			fmt.Println("STRING", str, isKey)
+
+			if str == "pieces" {
+				pieces := parsePieces(r)
+				result.Pieces = pieces
+				isKey = !isKey
+			}
+
+			if isKey {
+				lastKey = str
+				dict[str] = nil
+			} else {
+				dict[lastKey] = str
+			}
+		}
+
+		isKey = !isKey
+		fmt.Println("dict", dict)
+	}
+
+	return
+}
+
+func getList(r *bufio.Reader) (list []interface{}) {
+	for {
+		byte, err := r.ReadByte()
+		if err != nil {
+			fmt.Println("Error in getList")
+			break
+		}
+
+		val := c(byte)
+
+		switch val {
+		case "l":
+			fmt.Println("INNER LIST START")
+			list = append(list, getList(r))
+
+		case "e":
+			fmt.Println("INNER LIST END", list)
+			return list
+
+		default:
+			if _, err := strconv.Atoi(val); err == nil {
+				list = append(list, getString(r))
+				fmt.Println("INNER STRING")
+			}
 		}
 	}
 
 	return
 }
 
-func getInt(r *bufio.Reader) (intVal int) {
+func getInt(r *bufio.Reader, d string) (intVal int) {
 	intAsStr := ""
 
 	for {
@@ -156,7 +229,7 @@ func getInt(r *bufio.Reader) (intVal int) {
 		}
 
 		v := c(byte)
-		if v == "e" || err == io.EOF {
+		if v == d || err == io.EOF {
 			break
 		}
 

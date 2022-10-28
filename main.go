@@ -24,6 +24,7 @@ func main() {
 	torrentFile, parseErr := helper.ParseTorrentFile(file)
 	if parseErr != nil {
 		fmt.Println("Error parsing torrent file")
+		fmt.Println(parseErr)
 	}
-	fmt.Println(torrentFile)
+	fmt.Printf("%+v", torrentFile)
 }
