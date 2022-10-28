@@ -2,6 +2,7 @@ package helper
 
 import (
 	"bufio"
+	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ type TorrentFile struct {
 	FileName    string
 	PieceLength int64
 	Pieces      []string
+	InfoHash    string
 }
 
 func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
@@ -47,7 +49,7 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 			}
 
 		case "d":
-			subDict := getDict(reader, &result)
+			subDict := getDict(f, reader, &result)
 
 			if isKey {
 				fmt.Println("This should not be possible")
@@ -78,7 +80,7 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 		}
 
 		isKey = !isKey
-		fmt.Println("result", dict)
+		// fmt.Println("result", dict)
 	}
 
 	if _, keyExist := dict["announce"]; keyExist {
@@ -128,12 +130,17 @@ func parsePieces(r *bufio.Reader) []string {
 	return pieces
 }
 
-func getDict(r *bufio.Reader, result *TorrentFile) (dict map[string]interface{}) {
+func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]interface{}) {
 	dict = make(map[string]interface{})
-	fmt.Println("=========== DICT START =============")
+	fmt.Println("=========== INNER DICT START =============")
 
 	isKey := true
 	var lastKey string
+
+	start, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		fmt.Println("Error seeking start")
+	}
 
 	for {
 		b, err := r.ReadByte()
@@ -164,6 +171,24 @@ func getDict(r *bufio.Reader, result *TorrentFile) (dict map[string]interface{})
 				dict[lastKey] = list
 			}
 
+		case "e":
+			fmt.Println("INNER DICT END")
+
+			end, err := f.Seek(0, io.SeekCurrent)
+			if err != nil {
+				fmt.Println("Error seeking end")
+			}
+			fmt.Println("InfoHash bytes len", end, start)
+			infoBytes, err := r.Peek(int(end - start))
+			if err != nil {
+				fmt.Println("Error getting info hash")
+			}
+			infoHash := fmt.Sprintf("%x", sha1.Sum(infoBytes))
+			fmt.Println("INFOHASH", infoHash)
+
+			result.InfoHash = infoHash
+			return
+
 		default:
 			str := getString(r)
 			fmt.Println("STRING", str, isKey)
@@ -183,7 +208,7 @@ func getDict(r *bufio.Reader, result *TorrentFile) (dict map[string]interface{})
 		}
 
 		isKey = !isKey
-		fmt.Println("dict", dict)
+		// fmt.Println("dict", dict)
 	}
 
 	return

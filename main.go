@@ -26,5 +26,5 @@ func main() {
 		fmt.Println("Error parsing torrent file")
 		fmt.Println(parseErr)
 	}
-	fmt.Printf("%+v", torrentFile)
+	fmt.Printf("%+v\n", torrentFile.Pieces[0])
 }
