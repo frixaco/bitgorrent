@@ -29,8 +29,10 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 	var lastKey string
 
 	b, err := reader.ReadByte()
+	counter++
 	for {
 		b, err = reader.ReadByte()
+		counter++
 		if err != nil {
 			break
 		}
@@ -109,17 +111,21 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 	return result, err
 }
 
+var start = 0
+
 func parsePieces(r *bufio.Reader) []string {
 	var pieces []string
 
 	piecesLen := getInt(r, ":")
 	fmt.Println("Number of pieces", piecesLen)
 	r.ReadByte()
+	counter++
 
 	for i := 0; i < piecesLen/20; i++ {
 		bytes := make([]byte, 20)
 		for i := 0; i < 20; i++ {
 			b, _ := r.ReadByte()
+			counter++
 			bytes[i] = b
 		}
 		fmt.Println("HASHES", bytes)
@@ -130,20 +136,19 @@ func parsePieces(r *bufio.Reader) []string {
 	return pieces
 }
 
+var counter int = 0
+
 func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]interface{}) {
 	dict = make(map[string]interface{})
 	fmt.Println("=========== INNER DICT START =============")
 
 	isKey := true
 	var lastKey string
-
-	start, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		fmt.Println("Error seeking start")
-	}
+	start = counter
 
 	for {
 		b, err := r.ReadByte()
+		counter++
 		if err != nil {
 			break
 		}
@@ -174,19 +179,19 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 		case "e":
 			fmt.Println("INNER DICT END")
 
-			end, err := f.Seek(0, io.SeekCurrent)
-			if err != nil {
-				fmt.Println("Error seeking end")
+			fmt.Println("Number of bytes in infohash", start, counter)
+			var infohashBytes []byte
+			for i := start - 1; i < counter-1; i++ {
+				bb := make([]byte, 1)
+				f.ReadAt(bb, int64(i))
+				infohashBytes = append(infohashBytes, bb[0])
 			}
-			fmt.Println("InfoHash bytes len", end, start)
-			infoBytes, err := r.Peek(int(end - start))
-			if err != nil {
-				fmt.Println("Error getting info hash")
-			}
-			infoHash := fmt.Sprintf("%x", sha1.Sum(infoBytes))
-			fmt.Println("INFOHASH", infoHash)
 
+			infoHash := fmt.Sprintf("%x", sha1.Sum(infohashBytes))
+
+			fmt.Println("INFOHASH", infoHash)
 			result.InfoHash = infoHash
+
 			return
 
 		default:
@@ -217,6 +222,7 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 func getList(r *bufio.Reader) (list []interface{}) {
 	for {
 		byte, err := r.ReadByte()
+		counter++
 		if err != nil {
 			fmt.Println("Error in getList")
 			break
@@ -249,6 +255,7 @@ func getInt(r *bufio.Reader, d string) (intVal int) {
 
 	for {
 		byte, err := r.ReadByte()
+		counter++
 		if err != nil {
 			fmt.Println("Error reading byte while getting integer value")
 		}
@@ -272,10 +279,12 @@ func getInt(r *bufio.Reader, d string) (intVal int) {
 
 func getString(r *bufio.Reader) (str string) {
 	r.UnreadByte()
+	counter--
 	stringLen := getStringLen(r)
 
 	for i := 0; i < stringLen; i++ {
 		byte, err := r.ReadByte()
+		counter++
 		if err != nil {
 			fmt.Println("Error reading byte in getString")
 		}
@@ -290,6 +299,7 @@ func getStringLen(r *bufio.Reader) (len int) {
 	lenBuffer := ""
 	for {
 		byte, err := r.ReadByte()
+		counter++
 		if err != nil {
 			fmt.Println("Error reading byte while calculating string length")
 		}
