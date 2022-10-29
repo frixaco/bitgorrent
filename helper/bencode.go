@@ -13,17 +13,16 @@ import (
 type TorrentFile struct {
 	Announce string
 	// AnnounceList []interface{}
+	Peers       string
 	Comment     string
 	Size        int64
 	FileName    string
 	PieceLength int64
 	Pieces      []string
-	InfoHash    string
+	InfoHash    [20]byte
 }
 
-func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
-	reader := bufio.NewReader(f)
-
+func ParseBencodedData(reader *bufio.Reader, f *os.File) (result TorrentFile, err error) {
 	isKey := true
 	dict := make(map[string]interface{})
 	var lastKey string
@@ -42,7 +41,7 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 		switch val {
 		case "i":
 			intVal := getInt(reader, "e")
-			fmt.Println("INTEGER", intVal, isKey)
+			// fmt.Println("INTEGER", intVal, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
@@ -61,7 +60,7 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 
 		case "l":
 			list := getList(reader)
-			fmt.Println("LIST", list, isKey)
+			// fmt.Println("LIST", list, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
@@ -70,14 +69,18 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 			}
 
 		default:
-			str := getString(reader)
+			str, buf := getString(reader)
 			fmt.Println("STRING", str, isKey)
 
 			if isKey {
 				lastKey = str
 				dict[str] = nil
 			} else {
-				dict[lastKey] = str
+				if lastKey == "peers" {
+					dict[lastKey] = buf
+				} else {
+					dict[lastKey] = str
+				}
 			}
 		}
 
@@ -100,6 +103,9 @@ func ParseTorrentFile(f *os.File) (result TorrentFile, err error) {
 	if _, keyExist := dict["length"]; keyExist {
 		result.PieceLength = dict["length"].(int64)
 	}
+	if _, keyExist := dict["peers"]; keyExist {
+		result.Peers = dict["peers"].(string)
+	}
 	// if _, keyExist := dict["announce-list"]; keyExist {
 	// 	result.AnnounceList = announceList.([]interface{})
 	// }
@@ -117,7 +123,7 @@ func parsePieces(r *bufio.Reader) []string {
 	var pieces []string
 
 	piecesLen := getInt(r, ":")
-	fmt.Println("Number of pieces", piecesLen)
+	// fmt.Println("Number of pieces", piecesLen)
 	r.ReadByte()
 	counter++
 
@@ -128,10 +134,10 @@ func parsePieces(r *bufio.Reader) []string {
 			counter++
 			bytes[i] = b
 		}
-		fmt.Println("HASHES", bytes)
 
 		pieces = append(pieces, hex.EncodeToString(bytes))
 	}
+	// fmt.Println("HASHES", len(pieces))
 
 	return pieces
 }
@@ -140,7 +146,7 @@ var counter int = 0
 
 func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]interface{}) {
 	dict = make(map[string]interface{})
-	fmt.Println("=========== INNER DICT START =============")
+	// fmt.Println("=========== INNER DICT START =============")
 
 	isKey := true
 	var lastKey string
@@ -158,7 +164,7 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 		switch val {
 		case "i":
 			intVal := getInt(r, "e")
-			fmt.Println("INTEGER", intVal, isKey)
+			// fmt.Println("INTEGER", intVal, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
@@ -168,7 +174,7 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 
 		case "l":
 			list := getList(r)
-			fmt.Println("LIST", list, isKey)
+			// fmt.Println("LIST", list, isKey)
 
 			if isKey {
 				fmt.Println("This should not be possible")
@@ -177,9 +183,9 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 			}
 
 		case "e":
-			fmt.Println("INNER DICT END")
+			// fmt.Println("INNER DICT END")
 
-			fmt.Println("Number of bytes in infohash", start, counter)
+			// fmt.Println("Number of bytes in infohash", start, counter)
 			var infohashBytes []byte
 			for i := start - 1; i < counter-1; i++ {
 				bb := make([]byte, 1)
@@ -187,16 +193,16 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 				infohashBytes = append(infohashBytes, bb[0])
 			}
 
-			infoHash := fmt.Sprintf("%x", sha1.Sum(infohashBytes))
+			infoHash := sha1.Sum(infohashBytes)
 
-			fmt.Println("INFOHASH", infoHash)
+			// fmt.Println("INFOHASH", infoHash)
 			result.InfoHash = infoHash
 
 			return
 
 		default:
-			str := getString(r)
-			fmt.Println("STRING", str, isKey)
+			str, buf := getString(r)
+			// fmt.Println("STRING", str, isKey)
 
 			if str == "pieces" {
 				pieces := parsePieces(r)
@@ -208,7 +214,11 @@ func getDict(f *os.File, r *bufio.Reader, result *TorrentFile) (dict map[string]
 				lastKey = str
 				dict[str] = nil
 			} else {
-				dict[lastKey] = str
+				if lastKey == "peers" {
+					dict[lastKey] = buf
+				} else {
+					dict[lastKey] = str
+				}
 			}
 		}
 
@@ -232,17 +242,18 @@ func getList(r *bufio.Reader) (list []interface{}) {
 
 		switch val {
 		case "l":
-			fmt.Println("INNER LIST START")
+			// fmt.Println("INNER LIST START")
 			list = append(list, getList(r))
 
 		case "e":
-			fmt.Println("INNER LIST END", list)
+			// fmt.Println("INNER LIST END", list)
 			return list
 
 		default:
 			if _, err := strconv.Atoi(val); err == nil {
-				list = append(list, getString(r))
-				fmt.Println("INNER STRING")
+				str, _ := getString(r)
+				list = append(list, str)
+				// fmt.Println("INNER STRING")
 			}
 		}
 	}
@@ -277,22 +288,25 @@ func getInt(r *bufio.Reader, d string) (intVal int) {
 	return
 }
 
-func getString(r *bufio.Reader) (str string) {
+func getString(r *bufio.Reader) (str string, bytebuf string) {
 	r.UnreadByte()
 	counter--
 	stringLen := getStringLen(r)
 
+	tempbuf := ""
+
 	for i := 0; i < stringLen; i++ {
-		byte, err := r.ReadByte()
+		b, err := r.ReadByte()
 		counter++
 		if err != nil {
 			fmt.Println("Error reading byte in getString")
 		}
 
-		str += c(byte)
+		str += c(b)
+		tempbuf += hex.EncodeToString([]byte{b})
 	}
 
-	return
+	return str, tempbuf
 }
 
 func getStringLen(r *bufio.Reader) (len int) {
@@ -314,7 +328,7 @@ func getStringLen(r *bufio.Reader) (len int) {
 
 	len, lenErr := strconv.Atoi(lenBuffer)
 	if lenErr != nil {
-		fmt.Println(len, lenErr)
+		// fmt.Println(len, lenErr)
 		fmt.Printf("Error converting string length\n")
 	}
 
