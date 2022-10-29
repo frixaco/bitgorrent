@@ -1,11 +1,11 @@
-## Simple BitTorrent client written in Go
+## Simple BitTorrent client written in Go (WIP)
 
 ### Goals:
 
 - Dive deeper into Go
-- Make something useful
-- Have fun
+- Make something that I can use in my daily life
+- Have fun learning new stuff
 
 ### Features:
 
-- `bencoded` dictionary parser
+- Parser for decoding `bencode`
