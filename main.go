@@ -23,6 +23,10 @@ type Peer struct {
 	Port uint16
 }
 
+func (p *Peer) String() string {
+	return p.IP.String() + ":" + string(p.Port)
+}
+
 func main() {
 	torrentFileLocation := os.Args[1]
 	downloadLocation := os.Args[2]
@@ -44,12 +48,13 @@ func main() {
 	}
 	fmt.Printf("%+v\n", torrentFile.Announce)
 
-	peersFromTracker := getTrackerPeers(&torrentFile, 6881)
+	peersFromTracker, peerId := getTrackerPeers(&torrentFile, 6881)
 	b, err := io.ReadAll(peersFromTracker.Body)
 	if err != nil {
 		fmt.Println("Error parsing body", err)
 	}
 	fmt.Println(string(b))
+	fmt.Println("peerId", peerId)
 	reader2 := bufio.NewReader(bytes.NewReader(b))
 	parsedResponse, parseErr := helper.ParseBencodedData(reader2, nil)
 	if parseErr != nil {
@@ -70,17 +75,23 @@ func main() {
 		peers[i].Port = binary.BigEndian.Uint16(peersBin[offset+4 : offset+6])
 	}
 	fmt.Println("peers", peers)
+
+	// conn, err := net.DialTimeout("tcp", peers[0].String(), 3*time.Second)
+	// if err != nil {
+	// 	return nil, err
+	// }
 }
 
-func getTrackerPeers(t *helper.TorrentFile, port int) *http.Response {
+func getTrackerPeers(t *helper.TorrentFile, port int) (*http.Response, []byte) {
 	base, err := url.Parse(t.Announce)
 	if err != nil {
 		fmt.Println("Error parsing Announce string", err)
 	}
 
+	peerId := generatePeerId()
 	params := url.Values{
 		"info_hash": []string{string(t.InfoHash[:])},
-		"peer_id":   []string{string(generatePeerId())},
+		"peer_id":   []string{string(peerId)},
 		// "ip": []string{}
 		"port":       []string{strconv.Itoa(port)},
 		"uploaded":   []string{"0"},
@@ -104,7 +115,7 @@ func getTrackerPeers(t *helper.TorrentFile, port int) *http.Response {
 		fmt.Println("Error making GET request", err)
 	}
 
-	return resp
+	return resp, peerId
 }
 
 func generatePeerId() (token []byte) {
