@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"unicode"
@@ -59,11 +60,13 @@ func (d *Decoder) Decode() (interface{}, error) {
 
 			key, err := d.decodeStr()
 			if err != nil {
+				fmt.Println("bencode: error decoding dict key", err)
 				return nil, err
 			}
 
 			value, err := d.Decode()
 			if err != nil {
+				fmt.Println("bencode: error decoding dict value", err)
 				return nil, err
 			}
 
@@ -96,17 +99,31 @@ func (d *Decoder) decodeStr() (interface{}, error) {
 
 	v := d.data[d.cursor : d.cursor+l]
 
+	if len(v) == 0 || d.cursor == len(d.data) {
+		return nil, nil
+	}
+
 	var parsedStr string
-	if isSHA1(v[0]) {
-		pieces := make([]string, l/20)
-		c := 0
-		for i := 0; i < l/20; i++ {
-			c++
-			hash := hex.EncodeToString(d.data[d.cursor : d.cursor+20])
-			pieces[i] = hash
-			d.cursor += 20
-		}
-		return pieces, nil
+	if isSHA1(v[0]) || isSHA1(v[1]) || isSHA1(v[2]) || isSHA1(v[3]) {
+		d.cursor += l
+
+		return v, nil
+
+		// FOR PARSING REQUEST WITH PEER INFO
+		// pieces := hex.EncodeToString(v)
+		// d.cursor += l
+
+		// FOR PARSING TORRENT FILE INFO.PIECES
+		// pieces := make([]string, l/20)
+		// c := 0
+		// for i := 0; i < l/20; i++ {
+		// 	c++
+		// 	hash := hex.EncodeToString(d.data[d.cursor : d.cursor+20])
+		// 	pieces[i] = hash
+		// 	d.cursor += 20
+		// }
+		// fmt.Println("pieces", pieces)
+		// return pieces, nil
 	}
 
 	d.cursor += l
