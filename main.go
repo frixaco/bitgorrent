@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -15,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"frixaco/bitgorrent/helper"
+	"frixaco/bitgorrent/bencode"
 )
 
 type Peer struct {
@@ -24,7 +21,7 @@ type Peer struct {
 }
 
 func (p *Peer) String() string {
-	return p.IP.String() + ":" + string(p.Port)
+	return p.IP.String() + ":" + string(rune(p.Port))
 }
 
 func main() {
@@ -33,84 +30,64 @@ func main() {
 	fmt.Printf("Torrent file location: %v\n", torrentFileLocation)
 	fmt.Printf("Download location: %v\n", downloadLocation)
 
-	file, err := os.Open(torrentFileLocation)
+	file, _ := ioutil.ReadFile(torrentFileLocation)
+	torrentInfo, err := bencode.Unmarshal(&file)
 	if err != nil {
-		fmt.Println("Error opening torrent file")
+		fmt.Println(err)
+	}
+
+	hashedInfo, infohash, err := bencode.GetInfoHash(&file)
+	if err != nil {
+		fmt.Println("Failed to get infohash")
+	}
+	fmt.Println("infohash:", hashedInfo, infohash)
+
+	resp, _ := getTrackerPeers(torrentInfo.(map[string]interface{}), &hashedInfo)
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("error reading body", err)
+	}
+
+	peerInfo, err := bencode.Unmarshal(&b)
+	if err != nil {
+		fmt.Println("error decoding peer info", string(b))
+		fmt.Println(err)
 		return
 	}
-	defer file.Close()
-
-	reader := bufio.NewReader(file)
-	torrentFile, parseErr := helper.ParseBencodedData(reader, file)
-	if parseErr != nil {
-		fmt.Println("Error parsing torrent file")
-		fmt.Println(parseErr)
-	}
-	fmt.Printf("%+v\n", torrentFile.Announce)
-
-	peersFromTracker, peerId := getTrackerPeers(&torrentFile, 6881)
-	b, err := io.ReadAll(peersFromTracker.Body)
-	if err != nil {
-		fmt.Println("Error parsing body", err)
-	}
-	fmt.Println(string(b))
-	fmt.Println("peerId", peerId)
-	reader2 := bufio.NewReader(bytes.NewReader(b))
-	parsedResponse, parseErr := helper.ParseBencodedData(reader2, nil)
-	if parseErr != nil {
-		fmt.Println("Error parsing response", parseErr)
-	}
-	// fmt.Println("Peers", hex.EncodeToString(parsedResponse.Peers))
-	const peerSize = 6 // 4 for IP, 2 for port
-	peersBin, _ := hex.DecodeString(parsedResponse.Peers)
-	numPeers := len(peersBin) / peerSize
-	if len(peersBin)%peerSize != 0 {
-		fmt.Errorf("Received malformed peers")
-		return
-	}
-	peers := make([]Peer, numPeers)
-	for i := 0; i < numPeers; i++ {
-		offset := i * peerSize
-		peers[i].IP = net.IP(peersBin[offset : offset+4])
-		peers[i].Port = binary.BigEndian.Uint16(peersBin[offset+4 : offset+6])
-	}
-	fmt.Println("peers", peers)
-
-	// conn, err := net.DialTimeout("tcp", peers[0].String(), 3*time.Second)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	fmt.Println("peerinfo", peerInfo)
 }
 
-func getTrackerPeers(t *helper.TorrentFile, port int) (*http.Response, []byte) {
-	base, err := url.Parse(t.Announce)
+func getTrackerPeers(t map[string]interface{}, infohash *string) (*http.Response, []byte) {
+	announce := t["ANNOUNCE"].(string)
+	size := t["INFO"].(map[string]interface{})["LENGTH"].(int)
+	peerId := generatePeerId()
+
+	base, err := url.Parse(announce)
 	if err != nil {
 		fmt.Println("Error parsing Announce string", err)
 	}
 
-	peerId := generatePeerId()
 	params := url.Values{
-		"info_hash": []string{string(t.InfoHash[:])},
-		"peer_id":   []string{string(peerId)},
-		// "ip": []string{}
-		"port":       []string{strconv.Itoa(port)},
+		"info_hash":  []string{*infohash},
+		"peer_id":    []string{string(peerId)},
+		"port":       []string{strconv.Itoa(6881)},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},
 		"compact":    []string{"1"},
-		"left":       []string{strconv.Itoa(int(t.Size))},
+		"left":       []string{strconv.Itoa(size)},
+		// "ip": []string{}
 	}
 
 	passkey := base.Query().Get("uk")
 	if passkey != "" {
 		params.Add("uk", passkey)
 		fmt.Println("PASSKEY", passkey)
-
 	}
 
 	base.RawQuery = params.Encode()
-	fmt.Println("url string", t.Announce)
-
 	resp, err := http.Get(base.String())
+	fmt.Println(base.String())
+
 	if err != nil {
 		fmt.Println("Error making GET request", err)
 	}
