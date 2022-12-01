@@ -47,13 +47,11 @@ func (d *Decoder) Decode() (interface{}, error) {
 			l = append(l, v)
 		}
 	case 'd':
-		d.infohashStartIdx = d.cursor
 		d.cursor += 1
 		dict := map[string]interface{}{}
 
 		for {
 			if d.data[d.cursor] == 'e' {
-				d.infohashEndIdx = d.cursor
 				d.cursor += 1
 				return dict, nil
 			}
@@ -64,11 +62,19 @@ func (d *Decoder) Decode() (interface{}, error) {
 				return nil, err
 			}
 
+      if key == "info" {
+        d.infohashStartIdx = d.cursor
+      }
+
 			value, err := d.Decode()
 			if err != nil {
 				fmt.Println("bencode: error decoding dict value", err)
 				return nil, err
 			}
+      
+      if key == "info" {
+        d.infohashEndIdx = d.cursor
+      }
 
 			dict[strings.ReplaceAll(strings.ToUpper(key.(string)), "-", "_")] = value
 		}
@@ -106,7 +112,6 @@ func (d *Decoder) decodeStr() (interface{}, error) {
 	var parsedStr string
 	if isSHA1(v[0]) || isSHA1(v[1]) || isSHA1(v[2]) || isSHA1(v[3]) {
 		d.cursor += l
-
 		return v, nil
 
 		// FOR PARSING REQUEST WITH PEER INFO
@@ -154,15 +159,10 @@ func (d *Decoder) Encode(data interface{}) (interface{}, error) {
 
 func GetInfoHash(data *[]byte) (string, string, error) {
 	d := Decoder{data: *data}
-
-	startIdx := bytes.Index(d.data, []byte("4:info"))
-	if startIdx == -1 {
-		return "", "", errors.New("bencode: couldn't find info dict")
-	}
-
 	_, _ = d.Decode()
 
 	infohashBytes := d.data[d.infohashStartIdx:d.infohashEndIdx]
+  fmt.Println("BYTES", string(infohashBytes))
 	infoHash := sha1.Sum(infohashBytes)
 
 	hash := hex.EncodeToString(infoHash[:])
